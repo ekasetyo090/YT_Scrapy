@@ -4,11 +4,11 @@ data mining on YouTube using the "Try Feature" of the YouTube Data API v3.
 The script does not require an API key to make data retrieval requests.
 ## How to use:
 ### Importing Script:
-'''python
+```python
 from YT_Scrapy import YtScraper
 
 scraper_obj = YTScraper()
-'''
+```
 ### The class offers methods for:
 #### Basic Channel Data:
 Retrieves basic information about a YouTube channel, including channel ID, title, description, and subscriber count.\
