@@ -1,4 +1,16 @@
 # YTScrapy
+## Table of Content
+* [Description](#description)
+* [How to use](#how-to-use)
+	* [Importing Script](#importing-script)
+	* [Basic Channel Data](#basic-channel-data)
+	* [Playlist Item](#playlist-item)
+	* [Video Data](#video-data)
+	* [Video Search](#video-search)
+	* [Channel Search](#channel-search)
+
+
+## Description
 YT_Scrapy is a Python script that empowers users to perform data mining on YouTube using the "Try Feature" of the YouTube Data API v3. This script eliminates the need for an API key, making it a valuable tool for researchers, developers, and anyone interested in extracting insights from YouTube.
 
 At its core, YT_Scrapy provides a class and its associated methods that leverage the "Try Feature" to retrieve data from YouTube. This feature enables users to bypass the traditional API key requirement, allowing for unrestricted data retrieval. As a result, YT_Scrapy offers several advantages over traditional data mining methods:
@@ -7,15 +19,10 @@ At its core, YT_Scrapy provides a class and its associated methods that leverage
 2. Unrestricted Data Retrieval: Conduct data mining without limitations imposed by API quotas.
 3. Accurate Data Collection: Utilize the official YouTube Data API to ensure data accuracy and reliability.
 
-* [Basic Channel Data](#basic-channel-data)
-* [Playlist Item](#playlist-item)
-* [Video Data](#video-data)
-* [Video Search](#video-search)
-* [Channel Search](#channel-search)
 
 
 ## How to use:
-### Importing Script:
+#### Importing Script:
 ```python
 from YT_Scrapy import YtScraper
 
