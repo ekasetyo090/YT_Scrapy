@@ -36,7 +36,7 @@ Takes a string of playlist ID as input and returns a list contain video ID.
 from YT_Scrapy import YtScraper
 
 scraper_obj = YTScraper()
-data = scraper_obj.crape_playlist_item(
+data = scraper_obj.scrape_playlist_item(
 playlist_id # string of playlist ID
 ) # return list contain video ID
 ```
