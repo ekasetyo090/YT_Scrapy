@@ -12,8 +12,9 @@ import time
 import urllib.parse
 import re
 
-
+import pytz
 from datetime import datetime
+import dateutil.parser
 from typing import Union
 from requests.exceptions import ConnectionError, HTTPError
 from bs4 import BeautifulSoup
@@ -32,6 +33,71 @@ class YtScraper:
     """
 
     def __init__(self):
+        
+        self.TOPIC_ID = {
+            "music (parent topic)": "/m/04rlf",
+            "christian spiritual music": "/m/02mscn",
+            "classical music": "/m/0ggq0m",
+            "country": "/m/01lyv",
+            "electronic music": "/m/02lkt",
+            "hip hop music": "/m/0glt670",
+            "indie music": "/m/05rwpb",
+            "jazz music": "/m/03_d0",
+            "asian music": "/m/028sqc",
+            "latin american music": "/m/0g293",
+            "pop music": "/m/064t9",
+            "reggae music": "/m/06cqb",
+            "rhythm and blues music": "/m/06j6l",
+            "rock music": "/m/06by7",
+            "soul music": "/m/0gywn",
+            "games (parent topic)": "/m/0bzvm2",
+            "action games": "/m/025zzc",
+            "action-adventure games": "/m/02ntfj",
+            "casual games": "/m/0b1vjn",
+            "music video games": "/m/02hygl",
+            "puzzle video games": "/m/04q1x3q",
+            "racing video games": "/m/01sjng",
+            "role-playing video games": "/m/0403l3g",
+            "simulation video games": "/m/021bp2",
+            "sports games": "/m/022dc6",
+            "strategy video games": "/m/03hf_rm",
+            "sports (parent topic)": "/m/06ntj",
+            "american football": "/m/0jm_",
+            "baseball": "/m/018jz",
+            "basketball": "/m/018w8",
+            "boxing": "/m/01cgz",
+            "cricket": "/m/09xp_",
+            "football (soccer)": "/m/02vx4",
+            "golf": "/m/037hz",
+            "ice hockey": "/m/03tmr",
+            "mixed martial arts": "/m/01h7lh",
+            "motorsport": "/m/0410tth",
+            "tennis": "/m/07bs0",
+            "volleyball": "/m/07_53",
+            "entertainment (parent topic)": "/m/02jjt",
+            "comedy": "/m/09kqc",
+            "film": "/m/02vxn",
+            "performing arts": "/m/05qjc",
+            "professional wrestling": "/m/066wd",
+            "tv shows": "/m/0f2f9",
+            "lifestyle (parent topic)": "/m/019_rr",
+            "fashion": "/m/032tl",
+            "fitness": "/m/027x7n",
+            "food": "/m/02wbm",
+            "hobbies": "/m/03glg",
+            "pets": "/m/068hy",
+            "physical attraction [beauty]": "/m/041xxh",
+            "technology": "/m/07c1v",
+            "travel": "/m/07bxq",
+            "vehicles": "/m/07yv9",
+            "society (parent topic)": "/m/098wr",
+            "business": "/m/09s1f",
+            "health": "/m/0kt51",
+            "military": "/m/01h6rj",
+            "politics": "/m/05qt0",
+            "religion": "/m/06bvp",
+            "knowledge": "/m/01k8wb"
+        }
         self.BASE_URL = 'https://www.youtube.com/'
         self.session = req.Session()
         self.session_api = req.Session()
@@ -65,7 +131,22 @@ class YtScraper:
             'X-Referer':'https://explorer.apis.google.com',
             'X-Requested-With':'XMLHttpRequest'
         }
-        
+    def validate_topic(self,topic_id:Union[list, str]):
+        if topic_id is not None:
+            if isinstance(topic_id, list):            
+                if not all(item in topic_id for item in list(self.TOPIC_ID.values())):
+                    raise ValueError("invalid topic id, check topic id with self.TOPIC_ID")
+                return ','.join(topic_id)
+            
+            elif isinstance(topic_id, str):
+                if topic_id not in list(self.TOPIC_ID.values()):
+                    raise ValueError("invalid topic id, check topic id with self.TOPIC_ID")
+                return topic_id
+            else:
+                raise TypeError("topic id only takes str or list")
+        else:
+            return None
+    
     def get_api_reff(self):
         """Get api key and reff url to make request.
 
@@ -85,18 +166,15 @@ class YtScraper:
         }
         self.session_api.get('https://developers.google.com/youtube/v3/docs')
         response = self.session_api.get('https://explorer.apis.google.com/embedded.js')
-        api_pattern = re.compile(r'var JF=function\(a\){this.security={.*?};\s*this\.g=a;.*?this\.j=\{[\s\S]*?\}\};')
-        match = api_pattern.search(response.text)
-        api_pattern = re.compile(r'api_key:\s*\{Jc:\s*"(.*?)"\}')
-        match = api_pattern.search(match.group())
+        pattern = r'this\.Ic\s*=\s*"([\w\-\_\n]*)"'
+        match = re.search(pattern, response.text)
         api_key = match.group(1)
         #------------
         self.session_api.headers["Referer"] = 'https://developers.google.com/'
         response = self.session_api.get('https://apis.google.com/js/api.js')
-        reff_pattern = re.compile(r'window\.gapi\.load\("",\s*\{([\s\S]*?)\}\);')
-        match = reff_pattern.search(response.text)
-        reff_pattern = re.compile(r'h:\s*"(m;/_/scs/abc-static/_/js/k=gapi\.lb\.en\.[^"]*)"')
-        reff = urllib.parse.quote(reff_pattern.search(match.group(1)).group(1), safe='')
+        pattern = r'h:"(m;/_/scs/abc-static/_/js/k=gapi\.lb\.en\.[^"]*)"'
+        match = re.search(pattern, response.text)
+        reff = urllib.parse.quote(match.group(1), safe='')
         
         return api_key, reff
         
@@ -153,7 +231,7 @@ class YtScraper:
         self.channel_data['description'] = response.get('items',[])[0].get('snippet',{}).get('description')
         self.channel_data['custom_id'] = response.get('items',[])[0].get('snippet',{}).get('customUrl')
         self.channel_data['date_created(UTC)'] = self.convert_to_datetime(response.get('items',[])[0].get('snippet',{}).get('publishedAt'))
-        self.channel_data['thumbnails_default'] = response.get('items',[])[0].get('snippet',{}).get('thumbnails',{}).get('default',{}).get('url')
+        self.channel_data['thumbnails_default'] = response.get('items',[])[0].get('snippet',{}).get('thumbnails',{}).get('high',{}).get('url')
         self.channel_data['country'] = response.get('items',[])[0].get('snippet',{}).get('country')
         self.channel_data['all_video_upload_playlist_id'] = response.get('items',[])[0].get('contentDetails',{}).get('relatedPlaylists',{}).get('uploads')
         view_count = response.get('items',[])[0].get('statistics',{}).get('viewCount')
@@ -175,9 +253,10 @@ class YtScraper:
         topic = response.get('items',[])[0].get('topicDetails',{}).get('topicCategories',[])
         
         if topic:
-            self.channel_data['topic'] = ','.join([cat.split('/')[-1] for cat in topic])
+            self.channel_data['topic'] = ((','.join([cat.split('/')[-1] for cat in topic])).replace('_',' ')).replace('-', ' ')
         else:
             self.channel_data['topic'] = None
+    
        
         return self.channel_data
         
@@ -258,8 +337,9 @@ class YtScraper:
                     temp_dict['channel_id'] = response.get('items',[])[i].get('snippet',{}).get('channelId')
                     temp_dict['channel_title'] = response.get('items',[])[i].get('snippet',{}).get('channelTitle')
                     temp_dict['video_title'] = response.get('items',[])[i].get('snippet',{}).get('title')
+                    temp_dict['video_id'] = response.get('items',[])[i].get('id',{})
                     temp_dict['description'] = response.get('items',[])[i].get('snippet',{}).get('description')
-                    temp_dict['thumbnail_url'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('default',{}).get('url')
+                    temp_dict['thumbnail_url'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('standard',{}).get('url')
                     tag_string = response.get('items',[])[i].get('snippet',{}).get('tags')
                     if tag_string:
                         temp_dict['video_tag'] = ','.join(tag_string)
@@ -277,7 +357,7 @@ class YtScraper:
                     temp_dict['comment_count'] = response.get('items',[])[i].get('statistics',{}).get('commentCount')
                     topic = response.get('items',[])[i].get('topicDetails',{}).get('topicCategories',[])
                     if topic:
-                        temp_dict['topic_category'] = ','.join([cat.split('/')[-1] for cat in topic])
+                        temp_dict['topic_category'] = ((','.join([cat.split('/')[-1] for cat in topic])).replace('_',' ')).replace('-',' ')
                     else:
                         temp_dict['topic_category'] = None
                     temp_dict['start_time(UTC)'] = self.convert_to_datetime(response.get('items',[])[i].get('liveStreamingDetails',{}).get('actualStartTime'))
@@ -302,8 +382,9 @@ class YtScraper:
                 temp_dict['channel_id'] = response.get('items',[])[i].get('snippet',{}).get('channelId')
                 temp_dict['channel_title'] = response.get('items',[])[i].get('snippet',{}).get('channelTitle')
                 temp_dict['video_title'] = response.get('items',[])[i].get('snippet',{}).get('title')
+                temp_dict['video_id'] = response.get('items',[])[i].get('id',{})
                 temp_dict['description'] = response.get('items',[])[i].get('snippet',{}).get('description')
-                temp_dict['thumbnail_url'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('default',{}).get('url')
+                temp_dict['thumbnail_url'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('standard',{}).get('url')
                 tag_string = response.get('items',[])[i].get('snippet',{}).get('tags')
                 if tag_string:
                     temp_dict['video_tag'] = ','.join(tag_string)
@@ -321,7 +402,7 @@ class YtScraper:
                 temp_dict['comment_count'] = response.get('items',[])[i].get('statistics',{}).get('commentCount')
                 topic = response.get('items',[])[i].get('topicDetails',{}).get('topicCategories',[])
                 if topic:
-                    temp_dict['topic_category'] = ','.join([cat.split('/')[-1] for cat in topic])
+                    temp_dict['topic_category'] = ((','.join([cat.split('/')[-1] for cat in topic])).replace('_',' ')).replace('-', ' ')
                 else:
                     temp_dict['topic_category'] = None     
                 temp_dict['start_time(UTC)'] = self.convert_to_datetime(response.get('items',[])[i].get('liveStreamingDetails',{}).get('actualStartTime'))
@@ -331,8 +412,11 @@ class YtScraper:
         temp_list = pd.DataFrame.from_records(temp_list)
         numeric_col = ['duration(s)','view_count','like_count','favorite_count','comment_count']
         date_col = ['published_date','start_time(UTC)','end_time(UTC)','scheduled_time(UTC)']
-        temp_list[numeric_col] = temp_list[numeric_col].apply(pd.to_numeric, errors='coerce', axis=1,downcast='integer') 
-        temp_list[date_col] = temp_list[date_col].apply(pd.to_datetime, errors='coerce', axis=1) 
+        for i in numeric_col:
+            temp_list[i] = pd.to_numeric(temp_list[i], errors='coerce', downcast='integer')
+        for i in date_col:
+            temp_list[i] = pd.to_datetime(temp_list[i], errors='coerce')
+        
         return temp_list
     
     def parse_duration(self,duration):
@@ -347,20 +431,48 @@ class YtScraper:
               The total number of seconds represented by the duration string. 
               Returns 0 if the string is not a valid ISO 8601 duration format.
           """
-        
+        if not duration:
+            return 0
         # Regex to extract hours, minutes, and seconds from the ISO 8601 duration
-        pattern = re.compile(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?')
+        pattern = re.compile(
+            r'P'  # starts with 'P'
+            r'(?:(?P<years>\d+)Y)?'  # years
+            r'(?:(?P<months>\d+)M)?'  # months
+            r'(?:(?P<weeks>\d+)W)?'  # weeks
+            r'(?:(?P<days>\d+)D)?'  # days
+            r'(?:T'  # time part starts with 'T'
+            r'(?:(?P<hours>\d+)H)?'  # hours
+            r'(?:(?P<minutes>\d+)M)?'  # minutes
+            r'(?:(?P<seconds>\d+)S)?'  # seconds
+            r')?'  # end of the time part
+        )
+    
+        # Match the pattern with the input duration string
         match = pattern.match(duration)
-
         if not match:
             return 0
-
-        hours = int(match.group(1)) if match.group(1) else 0
-        minutes = int(match.group(2)) if match.group(2) else 0
-        seconds = int(match.group(3)) if match.group(3) else 0
-
-        # Convert the duration to seconds
-        total_seconds = hours * 3600 + minutes * 60 + seconds
+    
+        # Extract the matched groups as integers (default to 0 if not present)
+        duration = match.groupdict()
+        years = int(duration['years']) if duration['years'] else 0
+        months = int(duration['months']) if duration['months'] else 0
+        weeks = int(duration['weeks']) if duration['weeks'] else 0
+        days = int(duration['days']) if duration['days'] else 0
+        hours = int(duration['hours']) if duration['hours'] else 0
+        minutes = int(duration['minutes']) if duration['minutes'] else 0
+        seconds = int(duration['seconds']) if duration['seconds'] else 0
+    
+        # Convert everything to seconds
+        total_seconds = (
+            years * 365 * 24 * 60 * 60 +
+            months * 30 * 24 * 60 * 60 +
+            weeks * 7 * 24 * 60 * 60 +
+            days * 24 * 60 * 60 +
+            hours * 60 * 60 +
+            minutes * 60 +
+            seconds
+        )
+    
         return total_seconds
     
     def convert_to_datetime(self,iso_string):
@@ -383,26 +495,40 @@ class YtScraper:
     
     def validate_date(self,date_str: str) -> str:
         """
-        Validates the given date string to ensure it is in the correct format.
-
+        Validates the given date string and converts it to ISO format.
+    
         Args:
             date_str (str): The date string to be validated.
-
+    
         Returns:
-            bool: True if the date is valid, False otherwise.
-
+            str: The date in ISO format (yyyy-mm-ddTHH:MM:SSZ).
+    
         Raises:
             ValueError: If the date format is invalid.
         """
-        try:
-            date_object = datetime.strptime(date_str, "%Y-%m-%d")
-            return date_object.isoformat(timespec="seconds") + "Z"
-        except ValueError:
-            raise ValueError("Format date invalid. use format yyyy-mm-dd.")
-        except TypeError:
-            raise TypeError("Format date invalid. use format yyyy-mm-dd in string not integer.")
     
-    def scrape_search_video(self,q:str,regionCode:str,publishedAfter:str=None,publishedBefore:str=None,max_data:int=100,event_type:str='completed')->pd.DataFrame:
+        try:
+            # Attempt to parse the date string using strptime for yyyy-mm-dd format
+            date_object = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            try:
+                # Attempt to parse the date string using dateutil.parser for more complex formats
+                date_object = dateutil.parser.parse(date_str)
+            except ValueError:
+                raise ValueError("Invalid date format. Use yyyy-mm-dd or ISO 8601 format.")
+        date_object = date_object.replace(tzinfo=pytz.utc)
+        return date_object.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    
+    def scrape_search_video(self,
+                            q:str=None,
+                            regionCode:str=None,
+                            publishedAfter:str=None,
+                            publishedBefore:str=None,
+                            duration:str='videoDurationUnspecified',
+                            max_data:int=100,
+                            event_type:str='completed',
+                            topic_id: Union[list, str]=None,
+                            all_data:bool=False)->pd.DataFrame:
         """
         Scrapes search results for videos on YouTube using the YouTube Data API v3.
 
@@ -419,6 +545,7 @@ class YtScraper:
             max_data (int, optional): The maximum number of video results to scrape (default: 100, maximum: 10,000).
             event_type (str, optional): The event type to search for ("completed", "live", or "upcoming"). Defaults to "completed".
             all_data (bool, optional): If True, retrieves all search results (up to 500). Defaults to False.
+            topic_id (Union[list, str]): A list of topic IDs or a single topic ID.
 
         Returns:
             pd.DataFrame: A DataFrame containing the scraped video data and basic channel information.
@@ -426,14 +553,29 @@ class YtScraper:
         Raises:
             ValueError: If the event_type is not one of "completed", "live", or "upcoming".
         """
+        raise_mesage = """
+        q (str): The search query string.
+        regionCode (str): The YouTube region code (e.g., US, GB).
+        publishedAfter (str, optional): The ISO 8601 formatted date after which to search (inclusive).
+        publishedBefore (str, optional): The ISO 8601 formatted date before which to search (exclusive).
+        duration (str,optional) : 'any','short','medium','long', and 'videoDurationUnspecified' 
+        max_data (int, optional): The maximum number of video results to scrape (default: 100, maximum: 10,000).
+        event_type (str, optional): The event type to search for ("completed", "live", or "upcoming"). Defaults to "completed".
+        all_data (bool, optional): If True, retrieves all search results (up to 500). Defaults to False.
+        topic_id (Union[list, str]): A list of topic IDs or a single topic ID.
+        """
+        if duration not in ['videoDurationUnspecified','any','short','medium','long']:
+            raise ValueError('invalid duration argumen')
+        if not topic_id and not q and not regionCode and not publishedAfter and not publishedBefore:
+            raise ValueError(f'invalid args, all args (q,topic_id,regionCode,publishedAfter,publishedBefore) is empty. at least 1 arg is not empty : {raise_mesage}')
+        topic_id = self.validate_topic(topic_id)
         if event_type not in ['completed','live','upcoming']:
             raise ValueError('event type must one of these ["completed","live","upcoming"]')
         if publishedAfter is not None:
             publishedAfter = self.validate_date(publishedAfter)
         if publishedBefore is not None:
             publishedBefore = self.validate_date(publishedBefore)
-        if max_data > 10000:
-            raise ValueError("Maximum allowed value for max_data is 5000.")
+        
         url_channel_api = 'https://content-youtube.googleapis.com/youtube/v3/search'
         
         rank = 1
@@ -443,19 +585,97 @@ class YtScraper:
             'publishedAfter': publishedAfter,
             'maxResults': '50',
             'regionCode': regionCode,
+            'videoDuration': duration,
             'order': 'relevance',
             'type': 'video',
             'part': 'snippet',
             'publishedBefore': publishedBefore,
             'eventType': event_type,
-            'key': self.api_key
+            'key': self.api_key,
+            'topicId':topic_id
         }
         response = self.make_request(url=url_channel_api, params=param)
         next_page = response.get('nextPageToken')
         list_data = []
         
         for i in range(len(response.get('items',[]))):
-            if data_count < max_data:
+            if all_data == False:
+                if data_count == max_data:
+                    break
+            
+            temp_dict = {}
+            temp_dict['keyword'] = q
+            temp_dict['ranking'] = rank
+            temp_dict['video_id'] = response.get('items',[])[i].get('id',{}).get('videoId')
+            temp_dict['date_video_published(UTC)'] = self.convert_to_datetime(response.get('items',[])[i].get('snippet',{}).get('publishedAt'))
+            temp_dict['video_title'] = response.get('items',[])[i].get('snippet',{}).get('title')
+            temp_dict['video_description'] = response.get('items',[])[i].get('snippet',{}).get('description')
+            
+            #----------------------------------------
+            temp_video_data = self.scrape_video_data(temp_dict['video_id'])
+            temp_dict['video_thumbnail'] = temp_video_data['thumbnail_url']
+            temp_dict['video_default_audio_language'] = temp_video_data['defaultAudioLanguage'].iat[0]
+            temp_dict['video_status'] = temp_video_data['status'].iat[0]
+            temp_dict['video_duration(s)'] = temp_video_data['duration(s)'].iat[0]
+            temp_dict['video_licenced_content'] = temp_video_data['licensed_content'].iat[0]
+            temp_dict['video_tag'] =  temp_video_data['video_tag'].iat[0]
+            temp_dict['video_view_count'] = temp_video_data['view_count'].iat[0]
+            temp_dict['video_like_count'] = temp_video_data['like_count'].iat[0]
+            temp_dict['video_favorite_count'] = temp_video_data['favorite_count'].iat[0]
+            temp_dict['video_comment_count'] = temp_video_data['comment_count'].iat[0]
+            temp_dict['is_video_for_kids'] = temp_video_data['for_kids'].iat[0]
+            temp_dict['video_topic_id'] = temp_video_data['categoryId'].iat[0]
+            temp_dict['video_topic'] = temp_video_data['topic_category'].iat[0]
+            temp_dict['video_start_time(UTC)'] = temp_video_data['start_time(UTC)'].iat[0]
+            temp_dict['video_end_time(UTC)'] = temp_video_data['end_time(UTC)'].iat[0]
+            temp_dict['video_scheduled_time(UTC)'] = temp_video_data['scheduled_time(UTC)'].iat[0]
+            #--------------------------------------------
+            temp_dict['channel_id'] = response.get('items',[])[i].get('snippet',{}).get('channelId')
+            temp_dict['channel_title'] = response.get('items',[])[i].get('snippet',{}).get('channelTitle')
+            temp_channel_data = self.scrape_channel_basic_data(temp_dict['channel_id'])
+            temp_dict['date_channel_create(UTC)'] = temp_channel_data['date_created(UTC)']
+            temp_dict['channel_country'] = temp_channel_data['country']
+            temp_dict['channel_all_video_upload_playlist_id'] = temp_channel_data['all_video_upload_playlist_id']
+            temp_dict['channel_url'] = temp_channel_data['channel_url']
+            temp_dict['channel_owner_url'] = temp_channel_data['owner_urls']
+            temp_dict['channel_description'] = temp_channel_data['description']
+            temp_dict['channel_custom_id'] = temp_channel_data['custom_id']
+            temp_dict['channel_tag'] = temp_channel_data['channel_tag']
+            temp_dict['is_channel_Family_safe'] = temp_channel_data['isFamilySafe']
+            temp_dict['is_channel_hiden_sub'] = temp_channel_data['hidden_sub']
+            temp_dict['channel_topic'] = temp_channel_data['topic']
+            temp_dict['channel_view_count'] = temp_channel_data['views_count']
+            temp_dict['channel_video_count'] = temp_channel_data['video_count']
+            temp_dict['channel_subs_count'] = temp_channel_data['subs_count']
+            list_data.append(temp_dict)
+            rank +=1
+            data_count += 1
+        while next_page is not None:
+            if all_data == False:
+                if data_count == max_data:
+                    break
+            param = {
+                'q': q,
+                'publishedAfter': publishedAfter,
+                'maxResults': '50',
+                'regionCode': regionCode,
+                'pageToken' : next_page,
+                'videoDuration': duration,
+                'order': 'relevance',
+                'type': 'video',
+                'part': 'snippet',
+                'publishedBefore': publishedBefore,
+                'eventType': event_type,
+                'key': self.api_key,
+                'topicId':topic_id
+            }
+            response = self.make_request(url=url_channel_api, params=param)
+            next_page = response.get('nextPageToken')
+            for i in range(len(response.get('items',[]))):
+                if all_data == False:
+                    if data_count == max_data:
+                        break
+                
                 temp_dict = {}
                 temp_dict['keyword'] = q
                 temp_dict['ranking'] = rank
@@ -463,9 +683,10 @@ class YtScraper:
                 temp_dict['date_video_published(UTC)'] = self.convert_to_datetime(response.get('items',[])[i].get('snippet',{}).get('publishedAt'))
                 temp_dict['video_title'] = response.get('items',[])[i].get('snippet',{}).get('title')
                 temp_dict['video_description'] = response.get('items',[])[i].get('snippet',{}).get('description')
-                temp_dict['video_thumbnail'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('default',{}).get('url')
+                
                 #----------------------------------------
                 temp_video_data = self.scrape_video_data(temp_dict['video_id'])
+                temp_dict['video_thumbnail'] = temp_video_data['thumbnail_url']
                 temp_dict['video_default_audio_language'] = temp_video_data['defaultAudioLanguage'].iat[0]
                 temp_dict['video_status'] = temp_video_data['status'].iat[0]
                 temp_dict['video_duration(s)'] = temp_video_data['duration(s)'].iat[0]
@@ -500,72 +721,8 @@ class YtScraper:
                 temp_dict['channel_video_count'] = temp_channel_data['video_count']
                 temp_dict['channel_subs_count'] = temp_channel_data['subs_count']
                 list_data.append(temp_dict)
-                rank +=1
                 data_count += 1
-        while data_count < max_data or next_page is not None:
-            param = {
-                'q': q,
-                'publishedAfter': publishedAfter,
-                'maxResults': '50',
-                'regionCode': regionCode,
-                'pageToken' : next_page,
-                'order': 'relevance',
-                'type': 'video',
-                'part': 'snippet',
-                'publishedBefore': publishedBefore,
-                'eventType': event_type,
-                'key': self.api_key
-            }
-            response = self.make_request(url=url_channel_api, params=param)
-            next_page = response.get('nextPageToken')
-            for i in range(len(response.get('items',[]))):
-                if data_count < max_data:
-                    temp_dict = {}
-                    temp_dict['keyword'] = q
-                    temp_dict['ranking'] = rank
-                    temp_dict['video_id'] = response.get('items',[])[i].get('id',{}).get('videoId')
-                    temp_dict['date_video_published(UTC)'] = self.convert_to_datetime(response.get('items',[])[i].get('snippet',{}).get('publishedAt'))
-                    temp_dict['video_title'] = response.get('items',[])[i].get('snippet',{}).get('title')
-                    temp_dict['video_description'] = response.get('items',[])[i].get('snippet',{}).get('description')
-                    temp_dict['video_thumbnail'] = response.get('items',[])[i].get('snippet',{}).get('thumbnails',{}).get('default',{}).get('url')
-                    #----------------------------------------
-                    temp_video_data = self.scrape_video_data(temp_dict['video_id'])
-                    temp_dict['video_default_audio_language'] = temp_video_data['defaultAudioLanguage'].iat[0]
-                    temp_dict['video_status'] = temp_video_data['status'].iat[0]
-                    temp_dict['video_duration(s)'] = temp_video_data['duration(s)'].iat[0]
-                    temp_dict['video_licenced_content'] = temp_video_data['licensed_content'].iat[0]
-                    temp_dict['video_tag'] =  temp_video_data['video_tag'].iat[0]
-                    temp_dict['video_view_count'] = temp_video_data['view_count'].iat[0]
-                    temp_dict['video_like_count'] = temp_video_data['like_count'].iat[0]
-                    temp_dict['video_favorite_count'] = temp_video_data['favorite_count'].iat[0]
-                    temp_dict['video_comment_count'] = temp_video_data['comment_count'].iat[0]
-                    temp_dict['is_video_for_kids'] = temp_video_data['for_kids'].iat[0]
-                    temp_dict['video_topic_id'] = temp_video_data['categoryId'].iat[0]
-                    temp_dict['video_topic'] = temp_video_data['topic_category'].iat[0]
-                    temp_dict['video_start_time(UTC)'] = temp_video_data['start_time(UTC)'].iat[0]
-                    temp_dict['video_end_time(UTC)'] = temp_video_data['end_time(UTC)'].iat[0]
-                    temp_dict['video_scheduled_time(UTC)'] = temp_video_data['scheduled_time(UTC)'].iat[0]
-                    #--------------------------------------------
-                    temp_dict['channel_id'] = response.get('items',[])[i].get('snippet',{}).get('channelId')
-                    temp_dict['channel_title'] = response.get('items',[])[i].get('snippet',{}).get('channelTitle')
-                    temp_channel_data = self.scrape_channel_basic_data(temp_dict['channel_id'])
-                    temp_dict['date_channel_create(UTC)'] = temp_channel_data['date_created(UTC)']
-                    temp_dict['channel_country'] = temp_channel_data['country']
-                    temp_dict['channel_all_video_upload_playlist_id'] = temp_channel_data['all_video_upload_playlist_id']
-                    temp_dict['channel_url'] = temp_channel_data['channel_url']
-                    temp_dict['channel_owner_url'] = temp_channel_data['owner_urls']
-                    temp_dict['channel_description'] = temp_channel_data['description']
-                    temp_dict['channel_custom_id'] = temp_channel_data['custom_id']
-                    temp_dict['channel_tag'] = temp_channel_data['channel_tag']
-                    temp_dict['is_channel_Family_safe'] = temp_channel_data['isFamilySafe']
-                    temp_dict['is_channel_hiden_sub'] = temp_channel_data['hidden_sub']
-                    temp_dict['channel_topic'] = temp_channel_data['topic']
-                    temp_dict['channel_view_count'] = temp_channel_data['views_count']
-                    temp_dict['channel_video_count'] = temp_channel_data['video_count']
-                    temp_dict['channel_subs_count'] = temp_channel_data['subs_count']
-                    list_data.append(temp_dict)
-                    data_count += 1
-                    rank +=1
+                rank +=1
         
         list_data = pd.DataFrame.from_records(list_data)
         numeric_cols = [
@@ -577,13 +734,14 @@ class YtScraper:
             'date_video_published(UTC)', 'video_start_time(UTC)',
             'video_end_time(UTC)', 'video_scheduled_time(UTC)','date_channel_create(UTC)'
         ]
-        
-        list_data[numeric_cols] = list_data[numeric_cols].apply(pd.to_numeric, errors='coerce', axis=1, downcast='integer') 
-        list_data[datetime_cols] = list_data[datetime_cols].apply(pd.to_datetime, errors='coerce', axis=1) 
+        for i in numeric_cols:
+            list_data[i] = pd.to_numeric(list_data[i], errors='coerce',downcast='integer') 
+        for i in datetime_cols:
+            list_data[i] = pd.to_datetime(list_data[i], errors='coerce') 
         
         return list_data
     
-    def make_request(self,url:str, params=None, max_retries=10, backoff_factor=10,api:bool=True):
+    def make_request(self,url:str, params=None, api:bool=True):
         """
         Makes a GET request to a URL with optional parameters and retries on errors.
 
@@ -604,31 +762,47 @@ class YtScraper:
         Raises:
             Exception: If the request fails after all retries.
         """
-        retries = 1
-        while True:
-            try:
-                if api:
-                    response = self.session_api.get(url, params=params)
-                    response.raise_for_status()
-                    return response.json()
-                else:
-                    response = self.session.get(url)
-                    response.raise_for_status()
-                    return response
-            except HTTPError as http_err:
-                print(f"HTTP error occurred: {http_err}")
-                raise
-            except (ConnectionError, req.exceptions.RequestException) as e:
-                print(e)
-                if api:
-                    print('try again')
-                    time.sleep(backoff_factor * (2 ** retries))
-                    return self.session_api.get(url, params=params).json()
-                else:
-                    print('try again')
-                    time.sleep(backoff_factor * (2 ** retries))
-                    return self.session.get(url)
-    def scrape_search_channel(self,q:str,regionCode:str,publishedAfter:str=None,publishedBefore:str=None,max_data:int=100)->pd.DataFrame:
+        try:
+            if api:
+                response = self.session_api.get(url, params=params)
+                response.raise_for_status()
+                return response.json()
+            else:
+                response = self.session.get(url)
+                response.raise_for_status()
+                return response
+        except HTTPError:
+            if response.status_code == 403:
+                time.sleep(20)
+                return self.make_request(url=url, params=params,api=api)
+            else:
+                raise  # Re-raise error jika bukan 403
+
+        except (ConnectionError, req.exceptions.RequestException):
+            time.sleep(20)
+            return self.make_request(url=url, params=params,api=api)
+        
+                
+    def scrape_search_channel(self,q:str=None,
+                              regionCode:str=None,
+                              publishedAfter:str=None,
+                              publishedBefore:str=None,
+                              max_data:int=100,
+                              topic_id: Union[list, str]=None,
+                              all_data:bool=False)->pd.DataFrame:
+        raise_mesage = """
+        q (str): The search query string.
+        regionCode (str): The YouTube region code (e.g., US, GB).
+        publishedAfter (str, optional): The ISO 8601 formatted date after which to search (inclusive).
+        publishedBefore (str, optional): The ISO 8601 formatted date before which to search (exclusive).
+        max_data (int, optional): The maximum number of video results to scrape (default: 100, maximum: 10,000).
+        all_data (bool, optional): If True, retrieves all search results (up to 500). Defaults to False.
+        topic_id (Union[list, str]): A list of topic IDs or a single topic ID.
+        """
+        if not topic_id and not q and not regionCode and not publishedAfter and not publishedBefore:
+            raise ValueError(f'invalid args, all args is empty. at least 1 arg is not empty : {raise_mesage}')
+        topic_id = self.validate_topic(topic_id)
+        
         if publishedAfter is not None:
             publishedAfter = self.validate_date(publishedAfter)
         if publishedBefore is not None:
@@ -647,17 +821,64 @@ class YtScraper:
             'type': 'channel',
             'part': 'snippet',
             'publishedBefore': publishedBefore,
-            'key': self.api_key
+            'key': self.api_key,
+            'topicId':topic_id
         }
         response = self.make_request(url=url_channel_api, params=param)
         next_page = response.get('nextPageToken')
         list_data = []
         for data in range(len(response.get('items',[]))):
-            if data_count < max_data:
+            if all_data == False:
+                if data_count == max_data:
+                    break
+            temp_dict = {}
+            temp_dict['keyword'] = q
+            temp_dict['ranking'] = rank
+            temp_channel_data = self.scrape_channel_basic_data(response.get('items',[])[data].get('snippet',{}).get('channelId'))
+            temp_dict['date_channel_create(UTC)'] = temp_channel_data['date_created(UTC)']
+            temp_dict['channel_country'] = temp_channel_data['country']
+            temp_dict['channel_all_video_upload_playlist_id'] = temp_channel_data['all_video_upload_playlist_id']
+            temp_dict['channel_url'] = temp_channel_data['channel_url']
+            temp_dict['channel_owner_url'] = temp_channel_data['owner_urls']
+            temp_dict['channel_description'] = temp_channel_data['description']
+            temp_dict['channel_custom_id'] = temp_channel_data['custom_id']
+            temp_dict['channel_tag'] = temp_channel_data['channel_tag']
+            temp_dict['is_channel_Family_safe'] = temp_channel_data['isFamilySafe']
+            temp_dict['is_channel_hiden_sub'] = temp_channel_data['hidden_sub']
+            temp_dict['channel_topic'] = temp_channel_data['topic']
+            temp_dict['channel_view_count'] = temp_channel_data['views_count']
+            temp_dict['channel_video_count'] = temp_channel_data['video_count']
+            temp_dict['channel_subs_count'] = temp_channel_data['subs_count']
+            list_data.append(temp_dict)
+            data_count += 1
+            rank += 1
+        while next_page is not None:
+            if all_data == False:
+                if data_count == max_data:
+                    break
+            param = {
+                'pageToken' : next_page,
+                'q': q,
+                'publishedAfter': publishedAfter,
+                'maxResults': '50',
+                'regionCode': regionCode,
+                'order': 'relevance',
+                'type': 'channel',
+                'part': 'snippet',
+                'publishedBefore': publishedBefore,
+                'key': self.api_key,
+                'topicId':topic_id
+            }
+            response = self.make_request(url=url_channel_api, params=param)
+            next_page = response.get('nextPageToken')
+            for i in range(len(response.get('items',[]))):
+                if all_data == False:
+                    if data_count == max_data:
+                        break
                 temp_dict = {}
                 temp_dict['keyword'] = q
                 temp_dict['ranking'] = rank
-                temp_channel_data = self.scrape_channel_basic_data(response.get('items',[])[data].get('snippet',{}).get('channelId'))
+                temp_channel_data = self.scrape_channel_basic_data(response.get('items',[])[i].get('snippet',{}).get('channelId'))
                 temp_dict['date_channel_create(UTC)'] = temp_channel_data['date_created(UTC)']
                 temp_dict['channel_country'] = temp_channel_data['country']
                 temp_dict['channel_all_video_upload_playlist_id'] = temp_channel_data['all_video_upload_playlist_id']
@@ -675,55 +896,17 @@ class YtScraper:
                 list_data.append(temp_dict)
                 data_count += 1
                 rank += 1
-        while data_count < max_data or next_page is not None:
-            param = {
-                'pageToken' : next_page,
-                'q': q,
-                'publishedAfter': publishedAfter,
-                'maxResults': '50',
-                'regionCode': regionCode,
-                'order': 'relevance',
-                'type': 'channel',
-                'part': 'snippet',
-                'publishedBefore': publishedBefore,
-                'key': self.api_key
-            }
-            response = self.make_request(url=url_channel_api, params=param)
-            next_page = response.get('nextPageToken')
-            for i in range(len(response.get('items',[]))):
-                if data_count < max_data:
-                    temp_dict = {}
-                    temp_dict['keyword'] = q
-                    temp_dict['ranking'] = rank
-                    temp_channel_data = self.scrape_channel_basic_data(response.get('items',[])[data].get('snippet',{}).get('channelId'))
-                    temp_dict['date_channel_create(UTC)'] = temp_channel_data['date_created(UTC)']
-                    temp_dict['channel_country'] = temp_channel_data['country']
-                    temp_dict['channel_all_video_upload_playlist_id'] = temp_channel_data['all_video_upload_playlist_id']
-                    temp_dict['channel_url'] = temp_channel_data['channel_url']
-                    temp_dict['channel_owner_url'] = temp_channel_data['owner_urls']
-                    temp_dict['channel_description'] = temp_channel_data['description']
-                    temp_dict['channel_custom_id'] = temp_channel_data['custom_id']
-                    temp_dict['channel_tag'] = temp_channel_data['channel_tag']
-                    temp_dict['is_channel_Family_safe'] = temp_channel_data['isFamilySafe']
-                    temp_dict['is_channel_hiden_sub'] = temp_channel_data['hidden_sub']
-                    temp_dict['channel_topic'] = temp_channel_data['topic']
-                    temp_dict['channel_view_count'] = temp_channel_data['views_count']
-                    temp_dict['channel_video_count'] = temp_channel_data['video_count']
-                    temp_dict['channel_subs_count'] = temp_channel_data['subs_count']
-                    list_data.append(temp_dict)
-                    data_count += 1
-                    rank += 1
         list_data = pd.DataFrame.from_records(list_data)
         numeric_cols = [
             'ranking', 'channel_view_count',
             'channel_video_count', 'channel_subs_count'
         ]
-        datetime_cols = [
-            'date_channel_create(UTC)'
-        ]
+
         
-        list_data[numeric_cols] = list_data[numeric_cols].apply(pd.to_numeric, errors='coerce', axis=1, downcast='integer') 
-        list_data[datetime_cols] = list_data[datetime_cols].apply(pd.to_datetime, errors='coerce', axis=1)
+        for i in numeric_cols:
+            list_data[i] = pd.to_numeric(list_data[i], errors='coerce', downcast='integer')
+       
+        list_data['date_channel_create(UTC)'] = pd.to_datetime(list_data['date_channel_create(UTC)'], errors='coerce')
         return list_data
     
                         
